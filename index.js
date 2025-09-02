@@ -1,73 +1,74 @@
-import express from "express";
-import { Telegraf } from "telegraf";
-import dotenv from "dotenv";
+import { Telegraf, Markup } from 'telegraf';
+import express from 'express';
+import bodyParser from 'body-parser';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
-const app = express();
-app.use(express.json());
-
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = process.env.ADMIN_ID;
-const APP_URL = process.env.APP_URL;
-
-if (!BOT_TOKEN || !ADMIN_ID || !APP_URL) {
-  console.error("❌ Missing BOT_TOKEN, ADMIN_ID or APP_URL in .env");
-  process.exit(1);
-}
+const BOT_TOKEN = "8041168610:AAFHg7avPTcONzAoik-sQ5AlsqsRJc5D6cA";
+const ADMIN_ID = "5568760903";
 
 const bot = new Telegraf(BOT_TOKEN);
+const app = express();
+app.use(bodyParser.json());
 
-// webhook endpoint
-app.post(`/bot${BOT_TOKEN}`, (req, res) => {
-  bot.handleUpdate(req.body, res).catch(err => console.error("❌ Bot error:", err));
-});
+// Храним состояния пользователей
+const userStates = {};
 
+// Обработка команды /start
 bot.start((ctx) => {
-  ctx.reply("👋 Привет! Используй кнопку Menu для заказа.");
+  ctx.reply("Добро пожаловать! Используйте кнопку Menu ниже 👇", 
+    Markup.keyboard([["📋 Menu"]]).resize()
+  );
 });
 
-// обработка данных из mini-app
+// Нажатие кнопки Menu
+bot.hears("📋 Menu", (ctx) => {
+  ctx.reply("Откройте меню через мини-приложение", 
+    Markup.keyboard([Markup.button.webApp("Открыть меню", process.env.WEBAPP_URL || "https://food-bot-mini.onrender.com")]).resize()
+  );
+});
+
+// Получение данных из mini-app
 bot.on("message", async (ctx) => {
-  if (ctx.message?.web_app_data?.data) {
+  if (ctx.message.web_app_data) {
     try {
-      const order = JSON.parse(ctx.message.web_app_data.data);
-      console.log("📩 Order received:", order);
-
-      await ctx.reply("✅ Заказ получен! Укажите номер павильона:");
-      ctx.session = { order };  // сохраним заказ
-    } catch (e) {
-      console.error("❌ JSON parse error:", e.message);
-      await ctx.reply("Ошибка обработки заказа 😔");
+      const data = JSON.parse(ctx.message.web_app_data.data);
+      userStates[ctx.chat.id] = { step: "pavilion", order: data };
+      await ctx.reply("Введите номер павильона:");
+    } catch (err) {
+      console.error("Ошибка JSON.parse:", err.message);
+      ctx.reply("Ошибка обработки заказа ❌");
     }
-  } else if (ctx.session?.order && !ctx.session.phone) {
-    ctx.session.pavilion = ctx.message.text;
-    await ctx.reply("📞 Укажите номер телефона:");
-  } else if (ctx.session?.order && ctx.session.pavilion && !ctx.session.phone) {
-    ctx.session.phone = ctx.message.text;
-
-    // Отправляем админу
-    await bot.telegram.sendMessage(
-      ADMIN_ID,
-      `🍽 Новый заказ:
-${JSON.stringify(ctx.session.order, null, 2)}
-🏢 Павильон: ${ctx.session.pavilion}
-📞 Телефон: ${ctx.session.phone}`
-    );
-
-    await ctx.reply("Спасибо! Ваш заказ передан администратору ✅");
-    ctx.session = null;
+  } else if (userStates[ctx.chat.id]) {
+    const state = userStates[ctx.chat.id];
+    if (state.step === "pavilion") {
+      state.pavilion = ctx.message.text;
+      state.step = "phone";
+      await ctx.reply("Введите номер телефона:");
+    } else if (state.step === "phone") {
+      state.phone = ctx.message.text;
+      const orderText = state.order.items.map(i => `${i.name} x${i.quantity}`).join("\n");
+      await bot.telegram.sendMessage(
+        ADMIN_ID,
+        `📦 Новый заказ!\nПавильон: ${state.pavilion}\nТелефон: ${state.phone}\nЗаказ:\n${orderText}`
+      );
+      await ctx.reply("✅ Заказ отправлен администратору!");
+      delete userStates[ctx.chat.id];
+    }
   }
 });
 
-// запускаем сервер
-app.listen(3000, async () => {
-  console.log("🌐 Сервер запущен на порту 3000");
+// Express сервер для webhook
+app.post(`/webhook/${BOT_TOKEN}`, (req, res) => {
+  bot.handleUpdate(req.body, res);
+});
 
-  try {
-    await bot.telegram.setWebhook(`${APP_URL}/bot${BOT_TOKEN}`);
-    console.log("✅ Webhook установлен:", `${APP_URL}/bot${BOT_TOKEN}`);
-  } catch (err) {
-    console.error("❌ Ошибка установки webhook:", err);
-  }
+app.get("/", (req, res) => {
+  res.send("Bot server is running...");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🌐 Сервер запущен на порту ${PORT}`);
 });

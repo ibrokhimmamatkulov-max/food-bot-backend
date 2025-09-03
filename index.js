@@ -13,7 +13,7 @@ const app = express();
 app.use(bodyParser.json());
 
 const userStates = {};
-const PORT = process.env.PORT || 10000; // Render использует порт 10000
+const PORT = process.env.PORT || 10000;
 
 // Обработка команды /start
 bot.start((ctx) => {
@@ -30,11 +30,10 @@ bot.hears("📋 Menu", (ctx) => {
   );
 });
 
-// Обработка ВСЕХ сообщений - ОДИН обработчик!
+// Обработка ВСЕХ сообщений
 bot.on("message", async (ctx) => {
   console.log('Получено сообщение:', ctx.message.text);
   
-  // 1. Если это данные из WebApp
   if (ctx.message.web_app_data) {
     try {
       console.log("Данные из WebApp:", ctx.message.web_app_data.data);
@@ -66,14 +65,12 @@ bot.on("message", async (ctx) => {
     }
   }
 
-  // 2. Если у пользователя есть состояние
   if (userStates[ctx.chat.id]) {
     console.log("Обработка состояния пользователя:", userStates[ctx.chat.id].step);
     await handleOrderState(ctx);
     return;
   }
 
-  // 3. Если это обычное сообщение без состояния
   if (ctx.message.text && !ctx.message.text.startsWith('/')) {
     await ctx.reply('Чтобы сделать заказ, нажмите "📋 Menu"');
   }
@@ -126,8 +123,8 @@ async function handleOrderState(ctx) {
   }
 }
 
-// Express сервер
-app.post(`/webhook`, (req, res) => {
+// Настройка webhook маршрута
+app.post('/webhook', (req, res) => {
   console.log('Webhook received');
   bot.handleUpdate(req.body, res);
 });
@@ -136,22 +133,19 @@ app.get("/", (req, res) => {
   res.send("Bot server is running...");
 });
 
-// Запуск только Express сервера
-app.listen(PORT, () => {
+// ЗАПУСКАЕМ ТОЛЬКО EXPRESS СЕРВЕР!
+// Telegraf будет использовать существующий Express сервер
+app.listen(PORT, async () => {
   console.log(`🌐 Сервер запущен на порту ${PORT}`);
   
-  // Запуск бота в режиме webhook
-  bot.launch({
-    webhook: {
-      domain: `https://food-bot-backend-9zck.onrender.com`, // Ваш URL
-      port: PORT
-    }
-  }).then(() => {
-    console.log('🤖 Бот запущен в режиме webhook');
-  }).catch(err => {
-    console.error('Ошибка запуска бота:', err);
-  });
+  try {
+    // Устанавливаем webhook для бота
+    await bot.telegram.setWebhook(`https://food-bot-backend-9zck.onrender.com/webhook`);
+    console.log('✅ Webhook установлен');
+  } catch (error) {
+    console.error('❌ Ошибка установки webhook:', error);
+  }
 });
 
-// Убираем обработчики SIGINT/SIGTERM для Render
-// Render сам управляет процессами
+// Убираем bot.launch() полностью!
+// Telegraf будет обрабатывать запросы через Express

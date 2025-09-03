@@ -7,6 +7,7 @@ dotenv.config();
 
 const BOT_TOKEN = process.env.BOT_TOKEN || "8041168610:AAFHg7avPTcONzAoik-sQ5AlsqsRJc5D6cA";
 const ADMIN_ID = process.env.ADMIN_ID || "5568760903";
+const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN; // Добавьте в .env
 
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
@@ -31,6 +32,8 @@ bot.hears("📋 Menu", (ctx) => {
 
 // Обработка ВСЕХ сообщений - ОДИН обработчик!
 bot.on("message", async (ctx) => {
+  console.log('Получено сообщение:', ctx.message.text); // Для отладки
+  
   // 1. Если это данные из WebApp
   if (ctx.message.web_app_data) {
     try {
@@ -41,6 +44,7 @@ bot.on("message", async (ctx) => {
       }
 
       const data = JSON.parse(ctx.message.web_app_data.data);
+      console.log("Parsed data:", data); // Для отладки
       
       if (!data.items || !Array.isArray(data.items)) {
         throw new Error("Invalid order format");
@@ -54,7 +58,7 @@ bot.on("message", async (ctx) => {
       };
       
       await ctx.reply("Введите номер павильона:");
-      return; // Важно: выходим после обработки
+      return;
       
     } catch (err) {
       console.error("Ошибка обработки заказа:", err.message);
@@ -65,6 +69,7 @@ bot.on("message", async (ctx) => {
 
   // 2. Если у пользователя есть состояние (заказ в процессе)
   if (userStates[ctx.chat.id]) {
+    console.log("Обработка состояния пользователя:", userStates[ctx.chat.id].step); // Для отладки
     await handleOrderState(ctx);
     return;
   }
@@ -128,6 +133,7 @@ async function handleOrderState(ctx) {
 
 // Express сервер
 app.post(`/webhook/${BOT_TOKEN}`, (req, res) => {
+  console.log('Webhook received:', req.body); // Для отладки
   bot.handleUpdate(req.body, res);
 });
 
@@ -136,6 +142,23 @@ app.get("/", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Запуск бота в режиме webhook
+bot.launch({
+  webhook: {
+    domain: WEBHOOK_DOMAIN, // Ваш домен например: https://your-domain.com
+    port: PORT
+  }
+}).then(() => {
+  console.log('🤖 Бот запущен в режиме webhook');
+}).catch(err => {
+  console.error('Ошибка запуска бота:', err);
+});
+
 app.listen(PORT, () => {
   console.log(`🌐 Сервер запущен на порту ${PORT}`);
 });
+
+// Обработка graceful shutdown
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));

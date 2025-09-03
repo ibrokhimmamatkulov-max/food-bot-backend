@@ -7,13 +7,13 @@ dotenv.config();
 
 const BOT_TOKEN = process.env.BOT_TOKEN || "8041168610:AAFHg7avPTcONzAoik-sQ5AlsqsRJc5D6cA";
 const ADMIN_ID = process.env.ADMIN_ID || "5568760903";
-const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN; // Добавьте в .env
 
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 app.use(bodyParser.json());
 
 const userStates = {};
+const PORT = process.env.PORT || 10000; // Render использует порт 10000
 
 // Обработка команды /start
 bot.start((ctx) => {
@@ -32,7 +32,7 @@ bot.hears("📋 Menu", (ctx) => {
 
 // Обработка ВСЕХ сообщений - ОДИН обработчик!
 bot.on("message", async (ctx) => {
-  console.log('Получено сообщение:', ctx.message.text); // Для отладки
+  console.log('Получено сообщение:', ctx.message.text);
   
   // 1. Если это данные из WebApp
   if (ctx.message.web_app_data) {
@@ -44,13 +44,12 @@ bot.on("message", async (ctx) => {
       }
 
       const data = JSON.parse(ctx.message.web_app_data.data);
-      console.log("Parsed data:", data); // Для отладки
+      console.log("Parsed data:", data);
       
       if (!data.items || !Array.isArray(data.items)) {
         throw new Error("Invalid order format");
       }
 
-      // Сохраняем состояние и сразу просим павильон
       userStates[ctx.chat.id] = { 
         step: "pavilion", 
         order: data,
@@ -67,9 +66,9 @@ bot.on("message", async (ctx) => {
     }
   }
 
-  // 2. Если у пользователя есть состояние (заказ в процессе)
+  // 2. Если у пользователя есть состояние
   if (userStates[ctx.chat.id]) {
-    console.log("Обработка состояния пользователя:", userStates[ctx.chat.id].step); // Для отладки
+    console.log("Обработка состояния пользователя:", userStates[ctx.chat.id].step);
     await handleOrderState(ctx);
     return;
   }
@@ -104,12 +103,10 @@ async function handleOrderState(ctx) {
       
       state.phone = userInput;
       
-      // Формируем заказ
       const orderText = state.order.items
         .map(item => `• ${item.name} x${item.quantity}`)
         .join("\n");
       
-      // Отправляем админу
       await bot.telegram.sendMessage(
         ADMIN_ID,
         `📦 НОВЫЙ ЗАКАЗ!\n\n` +
@@ -120,8 +117,6 @@ async function handleOrderState(ctx) {
       );
       
       await ctx.reply("✅ Заказ успешно отправлен администратору! Ожидайте звонка для подтверждения.");
-      
-      // Удаляем состояние
       delete userStates[ctx.chat.id];
     }
   } catch (error) {
@@ -132,8 +127,8 @@ async function handleOrderState(ctx) {
 }
 
 // Express сервер
-app.post(`/webhook/${BOT_TOKEN}`, (req, res) => {
-  console.log('Webhook received:', req.body); // Для отладки
+app.post(`/webhook`, (req, res) => {
+  console.log('Webhook received');
   bot.handleUpdate(req.body, res);
 });
 
@@ -141,24 +136,22 @@ app.get("/", (req, res) => {
   res.send("Bot server is running...");
 });
 
-const PORT = process.env.PORT || 3000;
-
-// Запуск бота в режиме webhook
-bot.launch({
-  webhook: {
-    domain: WEBHOOK_DOMAIN, // Ваш домен например: https://your-domain.com
-    port: PORT
-  }
-}).then(() => {
-  console.log('🤖 Бот запущен в режиме webhook');
-}).catch(err => {
-  console.error('Ошибка запуска бота:', err);
-});
-
+// Запуск только Express сервера
 app.listen(PORT, () => {
   console.log(`🌐 Сервер запущен на порту ${PORT}`);
+  
+  // Запуск бота в режиме webhook
+  bot.launch({
+    webhook: {
+      domain: `https://food-bot-backend-9zck.onrender.com`, // Ваш URL
+      port: PORT
+    }
+  }).then(() => {
+    console.log('🤖 Бот запущен в режиме webhook');
+  }).catch(err => {
+    console.error('Ошибка запуска бота:', err);
+  });
 });
 
-// Обработка graceful shutdown
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// Убираем обработчики SIGINT/SIGTERM для Render
+// Render сам управляет процессами
